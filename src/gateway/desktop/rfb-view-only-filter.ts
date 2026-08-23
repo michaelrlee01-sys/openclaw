@@ -1,11 +1,20 @@
 const RFB_3_8_VERSION = Buffer.from("RFB 003.008\n", "ascii");
 const MAX_PENDING_BYTES = 64 * 1024;
 
-type RfbClientPhase = "version" | "security" | "authResponse" | "clientInit" | "messages";
+type RfbClientPhase =
+  | "version"
+  | "security"
+  | "authResponse"
+  | "ardAuthResponse"
+  | "clientInit"
+  | "messages";
 const FIXED_PHASE_LENGTHS: Record<Exclude<RfbClientPhase, "messages">, number> = {
   version: RFB_3_8_VERSION.length,
   security: 1,
   authResponse: 16,
+  // Apple Remote Desktop sends 128 encrypted credential bytes followed by
+  // the 128-byte Diffie-Hellman public key advertised by macOS Screen Sharing.
+  ardAuthResponse: 256,
   clientInit: 1,
 };
 
@@ -80,10 +89,12 @@ export function createRfbClientMessageFilter(
         phase = "clientInit";
       } else if (securityType === 2) {
         phase = "authResponse";
+      } else if (securityType === 30) {
+        phase = "ardAuthResponse";
       } else {
         return `unsupported RFB security type ${securityType}`;
       }
-    } else if (phase === "authResponse") {
+    } else if (phase === "authResponse" || phase === "ardAuthResponse") {
       forwarded.push(pending);
       phase = "clientInit";
     } else if (phase === "clientInit") {

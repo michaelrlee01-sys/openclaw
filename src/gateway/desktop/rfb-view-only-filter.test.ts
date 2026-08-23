@@ -16,6 +16,15 @@ function vncAuthHandshake(): Buffer {
   ]);
 }
 
+function ardAuthHandshake(): Buffer {
+  return Buffer.concat([
+    VERSION,
+    Buffer.from([30]),
+    Buffer.from(Array.from({ length: 256 }, (_, index) => index % 256)),
+    Buffer.from([1]),
+  ]);
+}
+
 function enterMessagePhase() {
   const filter = createRfbClientMessageFilter();
   expect(filter.filter(noneHandshake())).toEqual({ forward: noneHandshake() });
@@ -26,9 +35,23 @@ describe("RFB view-only client message filter", () => {
   it.each([
     ["None", noneHandshake()],
     ["VncAuth", vncAuthHandshake()],
+    ["ARD", ardAuthHandshake()],
   ])("forwards a complete %s handshake byte-identically", (_name, handshake) => {
     const filter = createRfbClientMessageFilter();
     expect(filter.filter(handshake)).toEqual({ forward: handshake });
+  });
+
+  it("buffers a fragmented ARD authentication response before ClientInit", () => {
+    const filter = createRfbClientMessageFilter();
+    const auth = ardAuthHandshake();
+
+    expect(filter.filter(auth.subarray(0, 100))).toEqual({
+      forward: auth.subarray(0, VERSION.length + 1),
+    });
+    expect(filter.filter(auth.subarray(100, 240))).toEqual({ forward: Buffer.alloc(0) });
+    expect(filter.filter(auth.subarray(240))).toEqual({
+      forward: auth.subarray(VERSION.length + 1),
+    });
   });
 
   it.each([
