@@ -248,7 +248,7 @@ export function handleDesktopObserveUpgrade(
         }
         const result = clientMessageFilter.filter(chunk);
         if ("error" in result) {
-          closeBoth(1008, "invalid view-only RFB stream");
+          closeBoth(1008, `invalid view-only RFB stream: ${result.error}`);
           return;
         }
         if (result.forward.length > 0) {

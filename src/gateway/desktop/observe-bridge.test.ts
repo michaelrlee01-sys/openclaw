@@ -213,7 +213,7 @@ describe("worker desktop observer proxy", () => {
     );
     await expect(closed).resolves.toEqual({
       code: 1008,
-      reason: "invalid view-only RFB stream",
+      reason: "invalid view-only RFB stream: unsupported RFB client message type 254",
     });
     expect(harness.release).toHaveBeenCalledOnce();
   });

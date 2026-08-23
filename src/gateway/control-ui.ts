@@ -211,6 +211,15 @@ function respondControlUiAssetsUnavailable(
   respondPlainText(res, 503, message);
 }
 
+function respondMissingBundledControlUiModule(res: ServerResponse, method: string | undefined) {
+  const body = `const u=new URL(location.href);u.searchParams.set("openclaw_mount_recovery",Date.now().toString());const reload=()=>location.replace(u.href);if("serviceWorker" in navigator){navigator.serviceWorker.getRegistrations().then(rs=>Promise.all(rs.map(r=>r.unregister()))).finally(reload)}else{reload()}\nexport {};\n`;
+  res.statusCode = 200;
+  res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store");
+  res.setHeader("Content-Length", Buffer.byteLength(body));
+  res.end(method === "HEAD" ? undefined : body);
+}
+
 function isValidAgentPathSegment(agentId: string): boolean {
   return /^[a-z0-9][a-z0-9_-]{0,63}$/i.test(agentId);
 }
@@ -1073,6 +1082,14 @@ export async function handleControlUiHttpRequest(
   // that dotted SPA routes (e.g. /user/jane.doe, /v2.0) still get the
   // client-side router fallback.
   if (isControlUiStaticAssetExtension(path.extname(fileRel).toLowerCase())) {
+    // A browser can retain an older index document across a Control UI deploy and
+    // subsequently request a fingerprinted module that no longer exists. Return a
+    // tiny recovery module for missing bundled JavaScript so the stale document can
+    // escape its own chunk-loading error, even when its UI reload handler is stale.
+    if (isBundledRoot && fileRel.startsWith("assets/") && fileRel.endsWith(".js")) {
+      respondMissingBundledControlUiModule(res, req.method);
+      return true;
+    }
     respondControlUiNotFound(res);
     return true;
   }

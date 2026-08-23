@@ -3316,6 +3316,43 @@ describe("handleControlUiHttpRequest", () => {
     });
   });
 
+  it("serves a no-store recovery module for missing bundled JavaScript chunks", async () => {
+    await withControlUiRoot({
+      fn: async (tmp) => {
+        const { res, end, setHeader, handled } = await runControlUiRequest({
+          url: "/assets/stale-chunk-AbCd1234.js",
+          method: "GET",
+          rootPath: tmp,
+          rootKind: "bundled",
+        });
+
+        expect(handled).toBe(true);
+        expect(res.statusCode).toBe(200);
+        expect(setHeader).toHaveBeenCalledWith(
+          "Content-Type",
+          "application/javascript; charset=utf-8",
+        );
+        expect(setHeader).toHaveBeenCalledWith("Cache-Control", "no-store");
+        expect(responseBody(end)).toContain("openclaw_mount_recovery");
+        expect(responseBody(end)).toContain("serviceWorker.getRegistrations");
+      },
+    });
+  });
+
+  it("keeps missing JavaScript at 404 for configured Control UI roots", async () => {
+    await withControlUiRoot({
+      fn: async (tmp) => {
+        const { res, end, handled } = await runControlUiRequest({
+          url: "/assets/stale-chunk-AbCd1234.js",
+          method: "GET",
+          rootPath: tmp,
+        });
+
+        expectNotFoundResponse({ handled, res, end });
+      },
+    });
+  });
+
   it("serves build-time gzip variants when they are preferred", async () => {
     await withControlUiRoot({
       fn: async (tmp) => {
