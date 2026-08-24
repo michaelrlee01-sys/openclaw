@@ -1,20 +1,11 @@
 const RFB_3_8_VERSION = Buffer.from("RFB 003.008\n", "ascii");
 const MAX_PENDING_BYTES = 64 * 1024;
 
-type RfbClientPhase =
-  | "version"
-  | "security"
-  | "authResponse"
-  | "ardAuthResponse"
-  | "clientInit"
-  | "messages";
+type RfbClientPhase = "version" | "security" | "authResponse" | "clientInit" | "messages";
 const FIXED_PHASE_LENGTHS: Record<Exclude<RfbClientPhase, "messages">, number> = {
   version: RFB_3_8_VERSION.length,
   security: 1,
   authResponse: 16,
-  // Apple Remote Desktop sends 128 encrypted credential bytes followed by
-  // the 128-byte Diffie-Hellman public key advertised by macOS Screen Sharing.
-  ardAuthResponse: 256,
   clientInit: 1,
 };
 
@@ -55,7 +46,7 @@ export function createRfbClientMessageFilter(
       case 5:
         // noVNC's extended pointer event sets the marker bit in the button mask
         // and appends one byte for buttons 8-15.
-        return pending.length < 2 ? 2 : (pending[1] & 0x80) !== 0 ? 7 : 6;
+        return pending.length < 2 ? 2 : (pending.readUInt8(1) & 0x80) !== 0 ? 7 : 6;
       case 6:
         // noVNC marks extended clipboard payloads with a negative signed length.
         return pending.length < 8 ? 8 : 8 + Math.abs(pending.readInt32BE(4));
@@ -89,12 +80,10 @@ export function createRfbClientMessageFilter(
         phase = "clientInit";
       } else if (securityType === 2) {
         phase = "authResponse";
-      } else if (securityType === 30) {
-        phase = "ardAuthResponse";
       } else {
         return `unsupported RFB security type ${securityType}`;
       }
-    } else if (phase === "authResponse" || phase === "ardAuthResponse") {
+    } else if (phase === "authResponse") {
       forwarded.push(pending);
       phase = "clientInit";
     } else if (phase === "clientInit") {
