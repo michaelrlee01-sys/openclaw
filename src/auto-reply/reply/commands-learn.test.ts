@@ -103,7 +103,7 @@ describe("learn command", () => {
       "Revise the best pending proposal or update the best Workshop-owned skill before creating anything new.",
     );
     expect(instruction).toContain("Make at most one proposal mutation.");
-    expect(instruction).toContain("first ~60 characters");
+    expect(instruction).toContain("first 60 characters");
     expect(instruction).toContain("never invent flags, commands, paths, APIs");
   });
 
