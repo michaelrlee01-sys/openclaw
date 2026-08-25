@@ -921,11 +921,10 @@ export function resolveProviderDeprecatedAuthProfileIds(params: {
     onlyPluginIds: pluginIds,
     discoveryEntriesOnly: true,
   }).find((provider) => matchesAnyProviderPluginRef(provider, providerRefs));
-  return (
-    discoveryProvider?.deprecatedProfileIds ??
-    resolveProviderRuntimePlugin(params)?.deprecatedProfileIds ??
-    []
-  );
+  if (discoveryProvider) {
+    return discoveryProvider.deprecatedProfileIds ?? [];
+  }
+  return resolveProviderRuntimePlugin(params)?.deprecatedProfileIds ?? [];
 }
 
 export function buildProviderMissingAuthMessageWithPlugin(params: {

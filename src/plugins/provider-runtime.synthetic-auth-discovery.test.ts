@@ -1,9 +1,12 @@
 /** Verifies provider runtime discovery includes synthetic-auth provider hooks. */
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ProviderPlugin } from "./types.js";
 
-const resolveProviderRuntimePlugin = vi.hoisted(() => vi.fn(() => undefined));
+const resolveProviderRuntimePlugin = vi.hoisted(() =>
+  vi.fn<() => ProviderPlugin | undefined>(() => undefined),
+);
 const resolvePluginDiscoveryProvidersRuntime = vi.hoisted(() =>
-  vi.fn(() => [
+  vi.fn<() => ProviderPlugin[]>(() => [
     {
       id: "anthropic-vertex",
       label: "Anthropic Vertex",
@@ -70,9 +73,16 @@ vi.mock("./providers.js", () => ({
   resolveOwningPluginIdsForProviderRef: resolveProviderOwnerIds,
 }));
 
-import { resolveProviderSyntheticAuthWithPlugin } from "./provider-runtime.js";
+import {
+  resolveProviderDeprecatedAuthProfileIds,
+  resolveProviderSyntheticAuthWithPlugin,
+} from "./provider-runtime.js";
 
-describe("resolveProviderSyntheticAuthWithPlugin", () => {
+describe("provider lightweight discovery hooks", () => {
+  beforeEach(() => {
+    resolveProviderRuntimePlugin.mockClear();
+    resolvePluginDiscoveryProvidersRuntime.mockClear();
+  });
   it("falls back to lightweight discovery providers when runtime hooks are unavailable", () => {
     expect(
       resolveProviderSyntheticAuthWithPlugin({
@@ -112,5 +122,24 @@ describe("resolveProviderSyntheticAuthWithPlugin", () => {
       source: "models.providers.ollama-remote (synthetic local key)",
       mode: "api-key",
     });
+  });
+
+  it("treats a discovery provider without retired ids as authoritative", () => {
+    resolvePluginDiscoveryProvidersRuntime.mockReturnValueOnce([
+      {
+        id: "ollama",
+        label: "Ollama",
+        auth: [],
+      },
+    ]);
+    resolveProviderRuntimePlugin.mockReturnValueOnce({
+      id: "ollama",
+      label: "Ollama runtime",
+      auth: [],
+      deprecatedProfileIds: ["ollama:legacy"],
+    });
+
+    expect(resolveProviderDeprecatedAuthProfileIds({ provider: "ollama" })).toEqual([]);
+    expect(resolveProviderRuntimePlugin).not.toHaveBeenCalled();
   });
 });
