@@ -387,6 +387,7 @@ describe("rejected CLI process state isolation", () => {
         "--profile",
         profile,
       ],
+      env: { EXA_API_KEY: "synthetic-fixture" },
       expectedExitCode: 1,
       pristineHome: true,
     });
