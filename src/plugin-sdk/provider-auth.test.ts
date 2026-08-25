@@ -1,9 +1,11 @@
+import type { execSync } from "node:child_process";
 // Provider auth tests cover credential resolution, setup state, and auth method contracts.
 import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
 import {
   clearRuntimeAuthProfileStoreSnapshots,
   saveAuthProfileStore,
@@ -27,17 +29,150 @@ const TEST_CACHED_COPILOT_TOKEN = [
   ["proxy-ep", "proxy.individual.githubcopilot.com"].join("="),
 ].join(";");
 const TEST_GITHUB_TOKEN_FINGERPRINT = createHash("sha256").update(TEST_GITHUB_TOKEN).digest("hex");
+const tempDirs = useAutoCleanupTempDirTracker(afterEach);
 
 describe("provider auth public SDK", () => {
   it("retains provider-scoped profile removal", () => {
     expect(removeProviderAuthProfilesWithLock).toBeTypeOf("function");
   });
 
-  it("keeps the retired Claude credential reader as a null-only compatibility export", () => {
+  it("keeps the shipped Claude credential reader functional during its deprecation window", async () => {
+    const homeDir = tempDirs.make("openclaw-sdk-claude-auth-");
+    const credentialsDir = path.join(homeDir, ".claude");
+    await fs.mkdir(credentialsDir, { recursive: true });
+    await fs.writeFile(
+      path.join(credentialsDir, ".credentials.json"),
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: "legacy-access",
+          refreshToken: "legacy-refresh",
+          expiresAt: 1_800_000_000_000,
+          subscriptionType: "max",
+        },
+      }),
+    );
+
+    expect(readClaudeCliCredentialsCached({ homeDir, platform: "linux", ttlMs: 0 })).toEqual({
+      type: "oauth",
+      provider: "anthropic",
+      access: "legacy-access",
+      refresh: "legacy-refresh",
+      expires: 1_800_000_000_000,
+      subscriptionType: "max",
+    });
+  });
+
+  it("reads Claude credentials from CLAUDE_CONFIG_DIR", async () => {
+    const configDir = tempDirs.make("openclaw-sdk-claude-config-");
+    await fs.writeFile(
+      path.join(configDir, ".credentials.json"),
+      JSON.stringify({
+        claudeAiOauth: {
+          accessToken: "configured-access",
+          refreshToken: "configured-refresh",
+          expiresAt: 1_800_000_000_000,
+        },
+      }),
+    );
+    await fs.writeFile(
+      path.join(configDir, ".claude.json"),
+      JSON.stringify({ oauthAccount: { emailAddress: "configured@example.com" } }),
+    );
+    vi.stubEnv("CLAUDE_CONFIG_DIR", configDir);
+
+    try {
+      expect(readClaudeCliCredentialsCached({ platform: "linux", ttlMs: 0 })).toMatchObject({
+        type: "oauth",
+        access: "configured-access",
+        refresh: "configured-refresh",
+        email: "configured@example.com",
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("reads the macOS Keychain through the absolute system executable", () => {
+    const execSyncImpl = vi.fn((command: string) => {
+      expect(command).toMatch(/^\/usr\/bin\/security find-generic-password /u);
+      return JSON.stringify({
+        claudeAiOauth: {
+          accessToken: "keychain-access",
+          refreshToken: "keychain-refresh",
+          expiresAt: 1_800_000_000_000,
+        },
+      });
+    }) as unknown as typeof execSync;
+
+    expect(
+      readClaudeCliCredentialsCached({
+        execSync: execSyncImpl,
+        platform: "darwin",
+        tryKeychainWithoutPrompt: true,
+        ttlMs: 0,
+      }),
+    ).toMatchObject({ type: "oauth", access: "keychain-access" });
+    expect(execSyncImpl).toHaveBeenCalledOnce();
+  });
+
+  it("keeps explicit no-prompt macOS Keychain reads presence-only", () => {
+    const execSyncImpl = vi.fn((command: string) => {
+      expect(command).toMatch(/^\/usr\/bin\/security find-generic-password /u);
+      expect(command).not.toContain(" -w");
+      return "keychain metadata";
+    }) as unknown as typeof execSync;
     const onStoredCredentialUnreadable = vi.fn();
 
-    expect(readClaudeCliCredentialsCached({ onStoredCredentialUnreadable })).toBeNull();
-    expect(onStoredCredentialUnreadable).not.toHaveBeenCalled();
+    expect(
+      readClaudeCliCredentialsCached({
+        allowKeychainPrompt: false,
+        execSync: execSyncImpl,
+        platform: "darwin",
+        tryKeychainWithoutPrompt: true,
+        onStoredCredentialUnreadable,
+        ttlMs: 0,
+      }),
+    ).toBeNull();
+    expect(execSyncImpl).toHaveBeenCalledOnce();
+    expect(onStoredCredentialUnreadable).toHaveBeenCalledOnce();
+  });
+
+  it("does not reuse a no-prompt Keychain miss for a prompt-enabled read", () => {
+    const homeDir = tempDirs.make("openclaw-sdk-claude-keychain-cache-");
+    const execSyncImpl = vi.fn((command: string) =>
+      command.includes(" -w")
+        ? JSON.stringify({
+            claudeAiOauth: {
+              accessToken: "prompted-access",
+              refreshToken: "prompted-refresh",
+              expiresAt: 1_800_000_000_000,
+            },
+          })
+        : "keychain metadata",
+    ) as unknown as typeof execSync;
+
+    expect(
+      readClaudeCliCredentialsCached({
+        allowKeychainPrompt: false,
+        execSync: execSyncImpl,
+        homeDir,
+        platform: "darwin",
+        tryKeychainWithoutPrompt: true,
+        ttlMs: 60_000,
+      }),
+    ).toBeNull();
+    expect(
+      readClaudeCliCredentialsCached({
+        allowKeychainPrompt: true,
+        execSync: execSyncImpl,
+        homeDir,
+        platform: "darwin",
+        tryKeychainWithoutPrompt: true,
+        ttlMs: 60_000,
+      }),
+    ).toMatchObject({ type: "oauth", access: "prompted-access" });
+    expect(execSyncImpl).toHaveBeenCalledOnce();
+    expect(execSyncImpl).toHaveBeenCalledWith(expect.stringContaining(" -w"), expect.any(Object));
   });
 });
 

@@ -289,6 +289,7 @@ describe("maybeRepairLegacyOAuthProfileIds", () => {
     expect(next.agents?.defaults?.models?.["anthropic/claude-sonnet-4-6"]?.agentRuntime).toEqual({
       id: "claude-cli",
     });
+    expect(providerPolicyMocks.applyConfigDefaults).toHaveBeenCalledOnce();
     expect(next.models?.providers?.anthropic?.apiKey).toBeUndefined();
     expect(result.retiredProfileCleanupPlans).toContainEqual({
       agentDir: undefined,
@@ -323,6 +324,7 @@ describe("maybeRepairLegacyOAuthProfileIds", () => {
 
     expect(next.models?.providers?.anthropic?.apiKey).toBeUndefined();
     expect(retiredProfileCleanupPlans).toEqual([]);
+    expect(providerPolicyMocks.applyConfigDefaults).not.toHaveBeenCalled();
   });
 
   it("removes a retired profile from a secondary agent store", async () => {

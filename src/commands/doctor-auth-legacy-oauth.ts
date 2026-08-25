@@ -1,3 +1,4 @@
+import { collectConfiguredModelRefs } from "@openclaw/model-catalog-core/configured-model-refs";
 /** Removes retired provider profiles and repairs legacy OAuth profile ids. */
 import { sanitizeForLog } from "../../packages/terminal-core/src/ansi.js";
 import { loadPersistedAuthProfileStore } from "../agents/auth-profiles/persisted.js";
@@ -27,6 +28,14 @@ function hasConfigOAuthProfiles(cfg: OpenClawConfig): boolean {
 function sanitizePromptLabel(label: string | undefined): string | undefined {
   const sanitized = label ? sanitizeForLog(label).trim() : undefined;
   return sanitized || undefined;
+}
+
+function configSelectsProvider(cfg: OpenClawConfig, providerIds: readonly string[]): boolean {
+  const selectedProviders = new Set(providerIds);
+  return collectConfiguredModelRefs(cfg).some(({ value }) => {
+    const separator = value.indexOf("/");
+    return separator > 0 && selectedProviders.has(value.slice(0, separator));
+  });
 }
 
 /**
@@ -69,13 +78,21 @@ export async function maybeRepairLegacyOAuthProfileIds(
       if (!apply) {
         continue;
       }
-      // Preserve provider-owned runtime selection while the retired profile still
-      // identifies it. Removing the profile first loses that migration signal.
-      nextCfg = applyProviderConfigDefaultsForConfig({
-        provider: provider.id,
-        config: nextCfg,
-        env: process.env,
-      });
+      const configuredProfileProvider = nextCfg.auth?.profiles?.[profileId]?.provider;
+      if (
+        configSelectsProvider(
+          nextCfg,
+          configuredProfileProvider ? [provider.id, configuredProfileProvider] : [provider.id],
+        )
+      ) {
+        // Preserve a selected provider's runtime routing before removing the
+        // retired profile that still identifies its native CLI migration.
+        nextCfg = applyProviderConfigDefaultsForConfig({
+          provider: provider.id,
+          config: nextCfg,
+          env: process.env,
+        });
+      }
       nextCfg = removeAuthProfileConfig(nextCfg, profileId);
       for (const candidate of profileStores) {
         retiredProfileCleanupPlans.push({
