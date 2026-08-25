@@ -4,6 +4,7 @@ import {
   readPositiveIntegerParam,
 } from "openclaw/plugin-sdk/channel-actions";
 import type { ChannelAgentTool } from "openclaw/plugin-sdk/channel-contract";
+import type { OpenClawPluginApi, OpenClawPluginToolContext } from "openclaw/plugin-sdk/core";
 import { hasNonEmptyString } from "openclaw/plugin-sdk/string-coerce-runtime";
 import { Type } from "typebox";
 import { startWebLoginWithQr, waitForWebLogin } from "../login-qr-api.js";
@@ -14,7 +15,16 @@ function readLoginStringPreservingWhitespace(value: unknown): string | undefined
   return hasNonEmptyString(value) ? value : undefined;
 }
 
-export function createWhatsAppLoginTool(): ChannelAgentTool {
+export function createWhatsAppLoginTool(): ChannelAgentTool;
+export function createWhatsAppLoginTool(
+  context: OpenClawPluginToolContext,
+): ChannelAgentTool | null;
+export function createWhatsAppLoginTool(
+  context?: OpenClawPluginToolContext,
+): ChannelAgentTool | null {
+  if (context && context.senderIsOwner !== true) {
+    return null;
+  }
   return {
     label: "WhatsApp Login",
     name: "whatsapp_login",
@@ -34,6 +44,11 @@ export function createWhatsAppLoginTool(): ChannelAgentTool {
       ),
     }),
     execute: async (_toolCallId, args) => {
+      // Relinking clears channel credentials. Recheck the factory-bound owner fact
+      // so retained or directly invoked tool handles cannot outlive that authority.
+      if (context && context.senderIsOwner !== true) {
+        throw new Error("WhatsApp login requires an owner-authorized sender.");
+      }
       const renderQrReply = (params: {
         message: string;
         qrDataUrl: string;
@@ -109,4 +124,10 @@ export function createWhatsAppLoginTool(): ChannelAgentTool {
       });
     },
   };
+}
+
+export function registerWhatsAppLoginTool(api: OpenClawPluginApi): void {
+  api.registerTool((context) => createWhatsAppLoginTool(context), {
+    name: "whatsapp_login",
+  });
 }

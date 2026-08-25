@@ -1,7 +1,12 @@
+import type {
+  AnyAgentTool,
+  OpenClawPluginApi,
+  OpenClawPluginToolContext,
+} from "openclaw/plugin-sdk/core";
 // Whatsapp tests cover agent tools login plugin behavior.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { startWebLoginWithQr, waitForWebLogin } from "../login-qr-api.js";
-import { createWhatsAppLoginTool } from "./agent-tools-login.js";
+import { createWhatsAppLoginTool, registerWhatsAppLoginTool } from "./agent-tools-login.js";
 
 vi.mock("../login-qr-api.js", () => ({
   startWebLoginWithQr: vi.fn(),
@@ -11,9 +16,42 @@ vi.mock("../login-qr-api.js", () => ({
 const startWebLoginWithQrMock = vi.mocked(startWebLoginWithQr);
 const waitForWebLoginMock = vi.mocked(waitForWebLogin);
 
+function resolveRegisteredLoginTool(context: OpenClawPluginToolContext): AnyAgentTool | null {
+  const api = { registerTool: vi.fn() } as unknown as OpenClawPluginApi;
+  registerWhatsAppLoginTool(api);
+  const factory = vi.mocked(api.registerTool).mock.calls[0]?.[0];
+  if (typeof factory !== "function") {
+    throw new Error("WhatsApp login tool factory was not registered");
+  }
+  return factory(context) as AnyAgentTool | null;
+}
+
+function createOwnerLoginTool(context: OpenClawPluginToolContext = { senderIsOwner: true }) {
+  const tool = resolveRegisteredLoginTool(context);
+  if (!tool) {
+    throw new Error("expected WhatsApp login tool for owner sender");
+  }
+  return tool;
+}
+
 describe("createWhatsAppLoginTool", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it.each([false, undefined])("hides the login tool when owner status is %s", (senderIsOwner) => {
+    expect(resolveRegisteredLoginTool({ senderIsOwner })).toBeNull();
+  });
+
+  it("rechecks owner authority before executing a retained tool", async () => {
+    const context: OpenClawPluginToolContext = { senderIsOwner: true };
+    const tool = createOwnerLoginTool(context);
+    context.senderIsOwner = false;
+
+    await expect(tool.execute("tool-call-retained", { action: "start" })).rejects.toThrow(
+      "WhatsApp login requires an owner-authorized sender",
+    );
+    expect(startWebLoginWithQrMock).not.toHaveBeenCalled();
   });
 
   it("fully anchors the QR data URL pattern for grammar-constrained models", () => {
@@ -39,7 +77,7 @@ describe("createWhatsAppLoginTool", () => {
       qrDataUrl: "data:image/png;base64,next-qr",
     });
 
-    const tool = createWhatsAppLoginTool();
+    const tool = createOwnerLoginTool();
     const result = await tool.execute("tool-call-1", {
       action: "wait",
       timeoutMs: "5000",
@@ -79,7 +117,7 @@ describe("createWhatsAppLoginTool", () => {
       qrDataUrl: "data:image/png;base64,current-qr",
     });
 
-    const tool = createWhatsAppLoginTool();
+    const tool = createOwnerLoginTool();
     await tool.execute("tool-call-start", {
       action: "start",
       timeoutMs: "6000",
@@ -94,7 +132,7 @@ describe("createWhatsAppLoginTool", () => {
   });
 
   it("rejects fractional timeoutMs before login actions", async () => {
-    const tool = createWhatsAppLoginTool();
+    const tool = createOwnerLoginTool();
 
     await expect(
       tool.execute("tool-call-start", {
@@ -117,7 +155,7 @@ describe("createWhatsAppLoginTool", () => {
       message: "✅ Linked! WhatsApp is ready.",
     });
 
-    const tool = createWhatsAppLoginTool();
+    const tool = createOwnerLoginTool();
     await tool.execute("tool-call-start", { action: "start", accountId });
     await tool.execute("tool-call-wait", { action: "wait", timeoutMs: 5000, accountId });
 
