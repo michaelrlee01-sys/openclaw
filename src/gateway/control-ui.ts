@@ -211,8 +211,13 @@ function respondControlUiAssetsUnavailable(
   respondPlainText(res, 503, message);
 }
 
-function respondMissingBundledControlUiModule(res: ServerResponse, method: string | undefined) {
-  const body = `const u=new URL(location.href);u.searchParams.set("openclaw_mount_recovery",Date.now().toString());const reload=()=>location.replace(u.href);if("serviceWorker" in navigator){navigator.serviceWorker.getRegistrations().then(rs=>Promise.all(rs.map(r=>r.unregister()))).finally(reload)}else{reload()}\nexport {};\n`;
+function respondMissingBundledControlUiModule(
+  res: ServerResponse,
+  method: string | undefined,
+  fileRel: string,
+) {
+  const recoveryKey = JSON.stringify(`openclaw.controlUi.missingModuleRecovery:${fileRel}`);
+  const body = `const k=${recoveryKey},u=new URL(location.href);let r=false;try{if(sessionStorage.getItem(k)!=="1"){sessionStorage.setItem(k,"1");r=true}}catch{r=!u.searchParams.has("openclaw_mount_recovery")}if(r){u.searchParams.set("openclaw_mount_recovery",Date.now().toString());const reload=()=>location.replace(u.href);if("serviceWorker" in navigator){navigator.serviceWorker.getRegistrations().then(rs=>Promise.all(rs.map(r=>r.unregister()))).finally(reload)}else{reload()}}\nexport {};\n`;
   res.statusCode = 200;
   res.setHeader("Content-Type", "application/javascript; charset=utf-8");
   res.setHeader("Cache-Control", "no-store");
@@ -1087,7 +1092,7 @@ export async function handleControlUiHttpRequest(
     // tiny recovery module for missing bundled JavaScript so the stale document can
     // escape its own chunk-loading error, even when its UI reload handler is stale.
     if (isBundledRoot && fileRel.startsWith("assets/") && fileRel.endsWith(".js")) {
-      respondMissingBundledControlUiModule(res, req.method);
+      respondMissingBundledControlUiModule(res, req.method, fileRel);
       return true;
     }
     respondControlUiNotFound(res);

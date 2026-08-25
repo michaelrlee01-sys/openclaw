@@ -6,6 +6,7 @@ import fs from "node:fs/promises";
 import type { IncomingMessage } from "node:http";
 import os from "node:os";
 import path from "node:path";
+import { runInNewContext } from "node:vm";
 import { brotliCompressSync, brotliDecompressSync, gzipSync, gunzipSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { useAutoCleanupTempDirTracker } from "../../test/helpers/temp-dir.js";
@@ -3335,6 +3336,87 @@ describe("handleControlUiHttpRequest", () => {
         expect(setHeader).toHaveBeenCalledWith("Cache-Control", "no-store");
         expect(responseBody(end)).toContain("openclaw_mount_recovery");
         expect(responseBody(end)).toContain("serviceWorker.getRegistrations");
+      },
+    });
+  });
+
+  it("allows each missing bundled JavaScript module one recovery navigation", async () => {
+    await withControlUiRoot({
+      fn: async (tmp) => {
+        const storage = new Map<string, string>();
+        const replace = vi.fn();
+        const execute = (source: string) => {
+          runInNewContext(source.replace(/\nexport \{\};\n$/u, ""), {
+            URL,
+            location: { href: "http://127.0.0.1/chat", replace },
+            navigator: {},
+            sessionStorage: {
+              getItem: (key: string) => storage.get(key) ?? null,
+              setItem: (key: string, value: string) => storage.set(key, value),
+            },
+          });
+        };
+        const requestModule = async (name: string) => {
+          const { end } = await runControlUiRequest({
+            url: `/assets/${name}.js`,
+            method: "GET",
+            rootPath: tmp,
+            rootKind: "bundled",
+          });
+          return responseBody(end);
+        };
+
+        const first = await requestModule("stale-chunk-AbCd1234");
+        execute(first);
+        execute(first);
+        expect(replace).toHaveBeenCalledTimes(1);
+
+        execute(await requestModule("stale-chunk-EfGh5678"));
+        expect(replace).toHaveBeenCalledTimes(2);
+      },
+    });
+  });
+
+  it("falls back to the recovery URL marker when browser storage is unavailable", async () => {
+    await withControlUiRoot({
+      fn: async (tmp) => {
+        const { end } = await runControlUiRequest({
+          url: "/assets/stale-chunk-AbCd1234.js",
+          method: "GET",
+          rootPath: tmp,
+          rootKind: "bundled",
+        });
+        const source = responseBody(end).replace(/\nexport \{\};\n$/u, "");
+        let href = "http://127.0.0.1/chat";
+        const replace = vi.fn((next: string) => {
+          href = next;
+        });
+        const execute = () => {
+          runInNewContext(source, {
+            URL,
+            location: {
+              get href() {
+                return href;
+              },
+              replace,
+            },
+            navigator: {},
+            sessionStorage: {
+              getItem: () => {
+                throw new Error("storage unavailable");
+              },
+              setItem: () => {
+                throw new Error("storage unavailable");
+              },
+            },
+          });
+        };
+
+        execute();
+        execute();
+
+        expect(replace).toHaveBeenCalledTimes(1);
+        expect(href).toContain("openclaw_mount_recovery=");
       },
     });
   });

@@ -169,6 +169,35 @@ describe("Control UI mount fallback", () => {
     expect([...frameWindow.document.body.classList]).toEqual([]);
   });
 
+  it("keeps the recovery marker until the app completes its first render", async () => {
+    const testWindow = window as TestWindow;
+    const originalUrl = testWindow.location.href;
+    const originalState = testWindow.history.state;
+    try {
+      testWindow.history.replaceState(null, "", "?openclaw_mount_recovery=1");
+      installFallbackShell(testWindow, await readIndexHtmlWithDelay(1));
+
+      expect(new URL(testWindow.location.href).searchParams.has("openclaw_mount_recovery")).toBe(
+        true,
+      );
+
+      testWindow.history.replaceState(
+        { route: "ready" },
+        "",
+        "/ready?openclaw_mount_recovery=1&callback=kept",
+      );
+      testWindow.dispatchEvent(new testWindow.Event("openclaw-control-ui-rendered"));
+
+      const finalUrl = new URL(testWindow.location.href);
+      expect(finalUrl.pathname).toBe("/ready");
+      expect(finalUrl.searchParams.get("callback")).toBe("kept");
+      expect(finalUrl.searchParams.has("openclaw_mount_recovery")).toBe(false);
+      expect(testWindow.history.state).toEqual({ route: "ready" });
+    } finally {
+      testWindow.history.replaceState(originalState, "", originalUrl);
+    }
+  });
+
   it("probes a cache-busted current document when the original bundle did not start", async () => {
     const frameWindow = createIsolatedWindow();
     const html = await readIndexHtmlWithDelay(1);

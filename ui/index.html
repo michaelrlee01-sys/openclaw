@@ -318,10 +318,6 @@
         try {
           var initialUrl = new URL(window.location.href);
           recoveryNavigation = initialUrl.searchParams.has("openclaw_mount_recovery");
-          if (recoveryNavigation) {
-            initialUrl.searchParams.delete("openclaw_mount_recovery");
-            window.history.replaceState(null, "", initialUrl.href);
-          }
         } catch (e) {}
 
         function hideFallback() {
@@ -440,6 +436,13 @@
             window.clearTimeout(timer);
             window.clearTimeout(recoveryTimer);
             hideFallback();
+            if (recoveryNavigation) {
+              try {
+                var renderedUrl = new URL(window.location.href);
+                renderedUrl.searchParams.delete("openclaw_mount_recovery");
+                window.history.replaceState(window.history.state, "", renderedUrl.href);
+              } catch (e) {}
+            }
           },
           { once: true },
         );
