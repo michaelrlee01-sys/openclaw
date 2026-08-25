@@ -34,7 +34,7 @@ type SidebarAttentionPanelParams = {
   items: SidebarAttentionItem[];
   onApprovalDecision: (event: Event, approvalId: string, decision: ExecApprovalDecision) => void;
   onClose: (restoreFocus: boolean) => void;
-  onDismiss: (item: SidebarAttentionItem) => void;
+  onDismissItems: (items: readonly SidebarAttentionItem[]) => void;
   onDismissUpdate?: () => void;
   onKeydown: (event: KeyboardEvent) => void;
   onNavigate: (routeId: NavigationRouteId) => void;
@@ -77,6 +77,8 @@ export function renderSidebarAttentionPanel(params: SidebarAttentionPanelParams)
     visibleItems.length +
     (showUpdate ? 1 : 0) +
     (showScopeUpgrade ? 1 : 0);
+  const dismissUpdate = showUpdate && Boolean(params.onDismissUpdate);
+  const dismissibleCount = visibleItems.length + (dismissUpdate ? 1 : 0);
   const errorItems = visibleItems.filter((item) => item.severity === "error");
   const warningItems = visibleItems.filter((item) => item.severity === "warning");
   const count =
@@ -110,7 +112,7 @@ export function renderSidebarAttentionPanel(params: SidebarAttentionPanelParams)
   const renderItem = (item: SidebarAttentionItem) =>
     renderSidebarIssueItem(item, {
       basePath: params.context.basePath,
-      onDismiss: params.onDismiss,
+      onDismiss: (dismissedItem) => params.onDismissItems([dismissedItem]),
       onNavigate: params.onNavigate,
       onOpen: params.onOpen,
     });
@@ -153,19 +155,35 @@ export function renderSidebarAttentionPanel(params: SidebarAttentionPanelParams)
             >
             ${t("attention.issues")}
           </h2>
-          ${renderSidebarAskOpenClawButton({
-            count: custodianItems.length,
-            severity: custodianSeverity,
-            snapshot: params.context.gateway.snapshot,
-          })}
-          <button
-            type="button"
-            class="sidebar-brand__icon sidebar-issues-panel__mobile-close"
-            aria-label=${t("common.close")}
-            @click=${() => params.onClose(true)}
-          >
-            ${icons.x}
-          </button>
+          <div class="sidebar-issues-panel__header-actions">
+            ${dismissibleCount > 0
+              ? html`<button
+                  type="button"
+                  class="btn btn--xs btn--ghost sidebar-issues-panel__dismiss-shown"
+                  @click=${() => {
+                    params.onDismissItems(visibleItems);
+                    if (dismissUpdate) {
+                      params.onDismissUpdate?.();
+                    }
+                  }}
+                >
+                  ${t("attention.dismissShown")}
+                </button>`
+              : nothing}
+            ${renderSidebarAskOpenClawButton({
+              count: custodianItems.length,
+              severity: custodianSeverity,
+              snapshot: params.context.gateway.snapshot,
+            })}
+            <button
+              type="button"
+              class="sidebar-brand__icon sidebar-issues-panel__mobile-close"
+              aria-label=${t("common.close")}
+              @click=${() => params.onClose(true)}
+            >
+              ${icons.x}
+            </button>
+          </div>
         </header>
         ${renderHubTabs<IssueTab>({
           id: "sidebar-issues",

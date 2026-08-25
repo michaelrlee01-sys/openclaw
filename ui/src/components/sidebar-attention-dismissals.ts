@@ -75,18 +75,16 @@ export function saveDismissals(gatewayUrl: string, dismissals: SidebarAttentionD
   }
 }
 
-/**
- * Record one dismissal via read-merge-write against the persisted map, not a
- * caller-held snapshot: another tab may have dismissed a different chip since
- * this tab last loaded, and a blind write would drop that entry.
- */
-export function addDismissal(
+/** Merge dismissals against persisted state so concurrent tabs keep each other's entries. */
+export function addDismissals(
   gatewayUrl: string,
-  kind: SidebarAttentionKind,
-  signature: string,
+  items: readonly DismissableChip[],
 ): SidebarAttentionDismissals {
   const stored = loadDismissals(gatewayUrl);
-  const next = { ...stored, [kind]: [...new Set([...(stored[kind] ?? []), signature])] };
+  const next = { ...stored };
+  for (const item of items) {
+    next[item.kind] = [...new Set([...(next[item.kind] ?? []), item.signature])];
+  }
   saveDismissals(gatewayUrl, next);
   return next;
 }
