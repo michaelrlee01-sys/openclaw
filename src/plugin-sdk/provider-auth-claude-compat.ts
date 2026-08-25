@@ -1,5 +1,6 @@
-/** Retired Claude CLI credential shape kept only for source compatibility. */
-export type ClaudeCliCredential =
+// The shipped provider-auth surface exported only the reader; keep its retired shapes local.
+/** Retired Claude CLI credential shape retained for the reader signature. */
+type ClaudeCliCredential =
   | {
       type: "oauth";
       provider: "anthropic";
@@ -25,7 +26,7 @@ export type ClaudeCliCredential =
       helperHash: string;
     };
 
-export type ClaudeCliCredentialReadOptions = {
+type ClaudeCliCredentialReadOptions = {
   allowKeychainPrompt?: boolean;
   tryKeychainWithoutPrompt?: boolean;
   onStoredCredentialUnreadable?: () => void;

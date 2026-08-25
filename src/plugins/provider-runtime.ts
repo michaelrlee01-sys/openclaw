@@ -899,7 +899,33 @@ export function resolveProviderDeprecatedAuthProfileIds(params: {
   workspaceDir?: string;
   env?: NodeJS.ProcessEnv;
 }): readonly string[] {
-  return resolveProviderRuntimePlugin(params)?.deprecatedProfileIds ?? [];
+  const providerConfig = params.config?.models?.providers?.[params.provider];
+  const providerRefs = resolveProviderHookRefs(params.provider, providerConfig);
+  const pluginIds = [
+    ...new Set(
+      providerRefs.flatMap(
+        (provider) =>
+          resolveOwningPluginIdsForProviderRef({
+            provider,
+            config: params.config,
+            workspaceDir: params.workspaceDir,
+            env: params.env,
+          }) ?? [],
+      ),
+    ),
+  ];
+  const discoveryProvider = resolvePluginDiscoveryProvidersRuntime({
+    config: params.config,
+    workspaceDir: params.workspaceDir,
+    env: params.env,
+    onlyPluginIds: pluginIds,
+    discoveryEntriesOnly: true,
+  }).find((provider) => matchesAnyProviderPluginRef(provider, providerRefs));
+  return (
+    discoveryProvider?.deprecatedProfileIds ??
+    resolveProviderRuntimePlugin(params)?.deprecatedProfileIds ??
+    []
+  );
 }
 
 export function buildProviderMissingAuthMessageWithPlugin(params: {
