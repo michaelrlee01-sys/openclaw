@@ -1,6 +1,4 @@
-import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { useAutoCleanupTempDirTracker } from "../../../test/helpers/temp-dir.js";
+import { describe, expect, it, vi } from "vitest";
 import type { SessionEntry } from "../../config/sessions/types.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import {
@@ -107,6 +105,9 @@ vi.mock("../thinking-runtime.js", () => ({
   normalizeThinkingCatalogProviders: (catalog: unknown) => catalog,
   resolveEffectiveAgentRuntime: () => undefined,
 }));
+vi.mock("../../plugins/provider-thinking.js", () => ({
+  resolveEffectiveThinkingProfile: () => undefined,
+}));
 vi.mock("../../plugins/runtime.js", () => ({ requireActivePluginRegistry: () => ({}) }));
 vi.mock("../../sessions/agent-harness-session-key.js", () => ({
   isValidAgentHarnessSessionStoreEntry: () => false,
@@ -156,13 +157,6 @@ vi.mock("./runtime-loaders.js", () => ({
 
 const { resolveEmbeddedModelSelection } = await import("./model-selection.js");
 
-const tempDirs = useAutoCleanupTempDirTracker(afterAll);
-let suiteTempRoot = "";
-
-beforeAll(() => {
-  suiteTempRoot = tempDirs.make("turn-model-command-");
-});
-
 function createConfig(fixture: TurnModelDifferentialFixture): OpenClawConfig {
   return {
     agents: { defaults: { model: { primary: turnModelRefLabel(TURN_MODEL_DEFAULT_REF) } } },
@@ -171,7 +165,6 @@ function createConfig(fixture: TurnModelDifferentialFixture): OpenClawConfig {
 }
 
 async function observeCommandSelection(fixture: TurnModelDifferentialFixture) {
-  const fixtureIndex = TURN_MODEL_DIFFERENTIAL_FIXTURES.indexOf(fixture);
   const sessionKey = "agent:main:telegram:group:selection";
   const sessionStore: Record<string, SessionEntry> = { [sessionKey]: fixture.child };
   if (fixture.parent) {
@@ -205,9 +198,9 @@ async function observeCommandSelection(fixture: TurnModelDifferentialFixture) {
     sessionStore,
     sessionKey,
     sessionId: fixture.child.sessionId,
-    storePath: path.join(suiteTempRoot, `sessions-${fixtureIndex}.json`),
+    storePath: "/tmp/turn-model-session.jsonl",
     sessionAgentId: "main",
-    workspaceDir: suiteTempRoot,
+    workspaceDir: "/tmp",
     pluginsEnabled: false,
     modelManifestContext: {},
     configuredThinkingCatalog: [],
