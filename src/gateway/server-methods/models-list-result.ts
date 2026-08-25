@@ -44,6 +44,7 @@ import { publishedModelCatalogOwnerMatchesAgent } from "../../agents/prepared-mo
 import { preparedModelRuntimeConfigsMatch } from "../../agents/prepared-model-runtime.js";
 import { resolveDefaultAgentWorkspaceDir } from "../../agents/workspace.js";
 import { getRuntimeConfigSourceSnapshot } from "../../config/config.js";
+import { resolveModelProviderRouteOverridePresence } from "../../config/model-provider-config.js";
 import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import type { PluginMetadataSnapshot } from "../../plugins/plugin-metadata-snapshot.types.js";
 import type { ProviderCatalogOutcome } from "../../plugins/provider-catalog.types.js";
@@ -78,36 +79,27 @@ function resolveModelsListView(params: Record<string, unknown>): ModelCatalogBro
 
 function resolveLegacyEntryAvailability(params: {
   authResolver: ModelAuthAvailabilityResolver;
-  entry: ModelCatalogEntry;
   primaryAvailability: ModelAuthAvailability;
-  cfg: OpenClawConfig;
-  agentId: string;
-  metadataSnapshot: PluginMetadataSnapshot;
+  runtimeProvider?: string;
+  preferredProfileId?: string;
+  lockedProfileId?: string;
 }): ModelAuthAvailability {
-  if (params.primaryAvailability === true) {
+  if (params.primaryAvailability === true || !params.runtimeProvider) {
+    return params.primaryAvailability;
+  }
+  const runtimeAvailable = params.authResolver.resolveProviderAuthAvailability(
+    params.runtimeProvider,
+    {
+      ...(params.preferredProfileId ? { preferredProfileId: params.preferredProfileId } : {}),
+      ...(params.lockedProfileId ? { lockedProfileId: params.lockedProfileId } : {}),
+    },
+  );
+  if (runtimeAvailable === true) {
     return true;
   }
-  let available = params.primaryAvailability;
-  const runtimeProvider = resolveCliRuntimeExecutionProvider({
-    provider: params.entry.provider,
-    cfg: params.cfg,
-    agentId: params.agentId,
-    modelId: params.entry.id,
-    metadataSnapshot: params.metadataSnapshot,
-  });
-  if (
-    runtimeProvider &&
-    normalizeProviderId(runtimeProvider) !== normalizeProviderId(params.entry.provider)
-  ) {
-    const runtimeAvailable = params.authResolver.resolveProviderAuthAvailability(runtimeProvider);
-    if (runtimeAvailable === true) {
-      return true;
-    }
-    if (available === false && runtimeAvailable === undefined) {
-      available = undefined;
-    }
-  }
-  return available;
+  return params.primaryAvailability === false && runtimeAvailable === undefined
+    ? undefined
+    : params.primaryAvailability;
 }
 
 function createModelsListEntryEvaluator(params: {
@@ -131,6 +123,18 @@ function createModelsListEntryEvaluator(params: {
       return cached;
     }
     const next = Promise.resolve().then(() => {
+      const runtimeProvider = resolveCliRuntimeExecutionProvider({
+        provider: entry.provider,
+        cfg: params.cfg,
+        agentId: params.agentId,
+        modelId: entry.id,
+        metadataSnapshot: params.metadataSnapshot,
+      });
+      const alternateRuntimeProvider =
+        runtimeProvider &&
+        normalizeProviderId(runtimeProvider) !== normalizeProviderId(entry.provider)
+          ? runtimeProvider
+          : undefined;
       const evaluation = params.authResolver.evaluateModelAuth(entry.provider, {
         modelId: identity?.id ?? entry.id,
         ...(params.preferredProfileId ? { preferredProfileId: params.preferredProfileId } : {}),
@@ -139,6 +143,18 @@ function createModelsListEntryEvaluator(params: {
           api: variant.api,
           baseUrl: variant.baseUrl,
         })),
+        ...(alternateRuntimeProvider
+          ? {
+              api: entry.api,
+              baseUrl: entry.baseUrl,
+              runtimeOwnerId: alternateRuntimeProvider,
+              requestTransportOverrides: resolveModelProviderRouteOverridePresence({
+                provider: entry.provider,
+                modelId: entry.id,
+                authoredConfig: getRuntimeConfigSourceSnapshot() ?? params.cfg,
+              }),
+            }
+          : {}),
       });
       const resolved =
         evaluation.routeResolution === null && normalizeProviderId(entry.provider) !== "openai"
@@ -146,11 +162,10 @@ function createModelsListEntryEvaluator(params: {
               ...evaluation,
               availability: resolveLegacyEntryAvailability({
                 authResolver: params.authResolver,
-                entry,
                 primaryAvailability: evaluation.availability,
-                cfg: params.cfg,
-                agentId: params.agentId,
-                metadataSnapshot: params.metadataSnapshot,
+                runtimeProvider: alternateRuntimeProvider,
+                preferredProfileId: params.preferredProfileId,
+                lockedProfileId: params.lockedProfileId,
               }),
             }
           : evaluation;

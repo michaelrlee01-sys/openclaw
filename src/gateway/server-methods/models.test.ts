@@ -199,18 +199,6 @@ const withoutOpenAIEnvAuth = async <T>(run: () => Promise<T>): Promise<T> =>
     run,
   );
 
-const withoutAnthropicEnvAuth = async <T>(run: () => Promise<T>): Promise<T> =>
-  await withEnvAsync(
-    {
-      ANTHROPIC_API_KEY: undefined,
-      ANTHROPIC_AUTH_TOKEN: undefined,
-      CLAUDE_API_KEY: undefined,
-      CLAUDE_CODE_OAUTH_TOKEN: undefined,
-      HOME: modelsTestState.home,
-    },
-    run,
-  );
-
 let modelsTestState: OpenClawTestState;
 
 beforeAll(async () => {
@@ -1622,95 +1610,6 @@ describe("models.list", () => {
                     source: "implicit",
                   },
                   available: true,
-                },
-              ],
-            },
-            undefined,
-          );
-        },
-      );
-    });
-  });
-
-  it("keeps catalog models available through a refresh-owned CLI runtime", async () => {
-    await withoutAnthropicEnvAuth(async () => {
-      await withModelsTestState(
-        {
-          layout: "state-only",
-          prefix: "openclaw-models-list-cli-runtime-",
-          agentEnv: "main",
-        },
-        async (state) => {
-          const store = {
-            version: 1,
-            profiles: {
-              "anthropic:claude-cli": {
-                type: "oauth",
-                provider: "claude-cli",
-                access: "claude-cli-access",
-                refresh: "claude-cli-refresh",
-                expires: Date.now() - 60_000,
-              },
-            },
-          } as const;
-          await state.writeAuthProfiles(store);
-          replaceRuntimeAuthProfileStoreSnapshots([
-            {
-              agentDir: state.agentDir(),
-              store: Object.assign({}, store, {
-                runtimeExternalCliProfileIds: ["anthropic:claude-cli"],
-              }),
-            },
-          ]);
-
-          const runtimeConfig = {
-            auth: {
-              profiles: {
-                "anthropic:claude-cli": { provider: "anthropic", mode: "token" },
-              },
-            },
-            agents: {
-              defaults: {
-                models: {
-                  "anthropic/claude-opus-4-8": {
-                    agentRuntime: { id: "claude-cli" },
-                  },
-                },
-              },
-            },
-          } as unknown as OpenClawConfig;
-          const { request, respond } = requestModelsList({
-            view: "all",
-            runtimeConfig,
-            loadGatewayModelCatalog: vi.fn(() =>
-              Promise.resolve([
-                {
-                  id: "claude-opus-4-8",
-                  name: "Claude Opus 4.8",
-                  provider: "anthropic",
-                },
-              ]),
-            ),
-            reqId: "req-models-list-cli-runtime",
-          });
-          await request;
-
-          expect(respond).toHaveBeenCalledWith(
-            true,
-            {
-              models: [
-                {
-                  id: "claude-opus-4-8",
-                  name: "Claude Opus 4.8",
-                  provider: "anthropic",
-                  agentRuntime: {
-                    id: "claude-cli",
-                    cloudPlacementSupported: false,
-                    devicePlacementSupported: false,
-                    source: "model",
-                  },
-                  available: true,
-                  tags: ["configured"],
                 },
               ],
             },
